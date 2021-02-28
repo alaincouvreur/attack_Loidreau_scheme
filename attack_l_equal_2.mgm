@@ -1,0 +1,238 @@
+load "Loidreau.mgm";
+print "";
+
+// 0. Printing function for tests
+function PrintTest(bool, number)
+	printf "Test %o .... ", number;
+    if bool then
+	   	print "[OK]";
+		return true;
+    else
+		print "[FAILED]";
+		return false;
+    end if;
+end function;
+
+// 1. Parameter setting
+q := 2;
+m := 120;
+F := GF(q);
+FF<w> := ext<F | m>;
+l := 2;
+n := 110;
+k := 45;
+test := false;
+
+
+// 2. Key generation
+Pub, G, Support, P, L, LP := DualLoidreauKeyGen(FF, m, n, k, l);
+gamma := L[2];
+
+
+// 3. First test, check our function BasisPublicCode
+g, h, List := BasisPublicCode(Support, gamma, m, q, k, LP);
+g1, h1, T := ListOfOneDimensionalCodes(Support, gamma, m, q, k, LP);
+
+
+C := LinearCode(Pub);
+
+if test and PrintTest(AmbientSpace(C)!List[1] in C, 1) then
+   print "Vector g + gamma h is in the code (no surprise).\n";
+end if;
+
+
+//
+t1 := Cputime();
+//
+
+// 4. First step of extraction, computation of <g + gamma h, g^[1] + gamma^[2-k] h^[1]>
+gph := ExtractPseudoSupport_I(C, m);
+
+if test and PrintTest(T[1] + CodeFrobenius(T[k], m) eq gph, 2) then
+   print "We got the space  <g + gamma h, g^[1] + gamma^[2-k] h^[1]>.\n";
+end if;
+
+
+// 5. Extraction of <g + gamma h>
+gh_1 := gph meet C;
+
+if test and PrintTest(T[1]  eq gh_1, 3) then
+   print "We got <g + gamma h>.\n";
+end if;
+
+
+// 6. Extraction of <g, h>
+V := gph + CodeFrobenius(gh_1, m);   // The code <g + gamma h, g^[1], h^[1]>; 
+W := V meet CodeFrobenius(C, m : t := m - 1);    // The code <g^[1] + gamma^[-1]h^[1]>
+W := CodeFrobenius(W, m : t := m-1);   // The code <g + gamma^[-2] h>
+gh := gh_1 + W; // the code <g, h>
+
+
+if test and PrintTest( W eq T[3], 4) then
+   print "We get <g, gamma^[-2] h>.\n";
+end if;
+
+
+if test and PrintTest(LinearCode<FF, n | [g, h]> eq gh ,5) then
+   print "We get <g, h>.\n";
+end if;
+
+
+// 7. List the spaces <g + gamma^[-i]h>
+Spaces := [gh_1 : i in {1..k}];
+for i in {2..k} do
+	S := C meet CodeFrobenius(gh, m : t := i-1);
+	Spaces[i] := CodeFrobenius(S, m : t := m-i+1);
+end for;
+
+if test and PrintTest(Spaces eq T, 6)
+   then print "We got all the spaces <g + gamma^[-i] h> for i = 0..-k+1.\n";
+end if;
+
+
+// 8. Collect coefficients uij, vij.
+
+Generators := [ElementToSequence(Basis(Spaces[i])[1]) : i in {2..k}];
+		   // Generators of < g+ gamma^[-i]h >, i > 1
+		   // Convenient representation, the j-th one
+		   // is a generator for < g + \gamma^[-j]h >
+
+
+Gen_ref := ElementToSequence(Basis(Spaces[1])[1]);    // Our reference for g + gamma h
+
+U := ZeroMatrix(FF, k-1, k-1);
+V := ZeroMatrix(FF, k-1, k-1);
+
+for i in {1..k-1} do
+	for j in {i+1..k-1} do
+			Sol := uij_vij(Generators, Gen_ref, i, j);
+			U[i,j] := Sol[1];
+			V[i,j] := Sol[2];
+			if test then
+			   assert [U[i,j]*Generators[i][s] +
+				   V[i,j]*Generators[j][s] : s in {1..n}] eq Gen_ref;
+		    end if;
+	end	for;
+end for;
+
+
+// 8. Update g, h
+
+// First, we need to update g, h, in order to be coherent with our choice
+// of Gen_ref
+Mr := Matrix(FF, 2, n, [g, h]);
+Vsol := Solution(Mr, VectorSpace(FF, n)!Gen_ref);
+g_norm := [Vsol[1] * a : a in g];
+h_norm := [Vsol[1] * a : a in h];
+
+if test then
+   assert [g_norm[i] + gamma * h_norm[i] : i in {1..n}] eq Gen_ref;
+end if;
+
+
+// 9. Additional tests
+gg := AmbientSpace(Spaces[1])!g_norm;
+hh := AmbientSpace(Spaces[1])!h_norm;
+
+if test then
+   for i in {1..k} do
+   	   assert (gg + gamma^(q^(m-i+1))*hh) in Spaces[i];
+   end for;
+end if;
+
+
+
+// 10. Testing some relations in the article.
+
+if test then
+   printf "Test 7 .... ";
+   for i in {1..k-1} do
+   	   for j in {i+1..k-1} do
+		   AU := [U[i,j]*a : a in Generators[i]];
+		   BU := [(g_norm[s] + gamma^(q^(m-i))*h_norm[s]) *
+		   	    (gamma^(q^(m-j))- gamma) / (gamma^(q^(m-j)) - gamma^(q^(m-i)))
+				: s in {1..n}];
+		   assert AU eq BU;
+
+		   AV := [V[i,j]*a : a in Generators[j]];
+		   BV := [(g_norm[s] + gamma^(q^(m-j))*h_norm[s]) *
+		   	    (gamma- gamma^(q^(m-i))) / (gamma^(q^(m-j)) - gamma^(q^(m-i)))
+				: s in {1..n}];
+		end for;
+	end for;
+end if;
+
+print "[OK]\n";
+
+
+
+// 11. Get the polynomial whose roots are the orbit of
+// gamma under PGL2
+
+Pol<X> := PolynomialRing(FF);
+
+Pgamma := RelationUU(U, q, 1, 2, 3) div (X^q-X)^(q+1);
+roots := [a[1] : a in Roots(Pgamma)];
+
+// Choose a random root of Pgamma as a candidate for gamma.
+gamma1 := Random(roots);
+
+Gen_Bis := U[1,2] * ((gamma1^(q^(m-2)) - gamma1^(q^(m-1))) /
+		   		   (gamma1^(q^(m-2))- gamma1)) 
+		   * (VectorSpace(FF, n)!Generators[1]);
+
+			// vect = g_norm + gamma1^(q^(-1))*h_norm
+
+// Coercion for comfort.
+vGen_ref := VectorSpace(FF, n)!Gen_ref;
+vGen_Bis := VectorSpace(FF, n)!Gen_Bis;
+
+// Deduce the corresponding supports.
+
+gprime := (1/(gamma1^(q^(m-1)) - gamma1)) *
+	   	  (gamma1^(q^(m-1)) * vGen_ref - gamma1 * vGen_Bis);
+hprime := (1/(gamma1^(q^(m-1)) - gamma1)) *
+	   	  (- vGen_ref + vGen_Bis);
+
+print "-- PRE-FINAL TEST : ";
+prefinal_test := true;
+for i in {0..k-1} do
+	  if not (gprime + gamma1^(q^(m-i))*hprime in Spaces[i+1]) then
+	  	 prefinal_test := false;
+		 printf "Error at the %oth pre-final test.\n", k;
+	  end if;
+end for;
+
+if prefinal_test then
+   print "[OK]\n";
+end if;	
+
+
+
+// 12. Tests for supports
+aprime := SupportVector(ElementToSequence(gprime), ElementToSequence(hprime), F);
+Ma := MatrixExpansion(ElementToSequence(aprime), F);
+Mg := MatrixExpansion(ElementToSequence(gprime), F);
+Mh := MatrixExpansion(ElementToSequence(hprime), F);
+
+Sa, IndRows := ExtractFullRankSubmatrix(Ma);
+Sg := Submatrix(Mg, IndRows, [1..n]);
+Sh := Submatrix(Mh, IndRows, [1..n]);
+
+
+P0 := ChangeRing(Sa^(-1) * Sg, FF);
+P1 := ChangeRing(Sa^(-1) * Sh, FF);
+
+GabD := GabidulinCode(aprime, m, k);
+GabG := GeneratorMatrix(GabD);
+Q := (P0) + gamma1 * (P1);
+GabTwist := LinearCode(GabG * Q);
+
+if GabTwist eq LinearCode(Pub) then
+   print "----------------- SUCCESS! --------------------";
+end if;
+
+t2 := Cputime();
+printf "\n--------\nTOTAL TIME = %o s.\n", t2-t1;
+
+

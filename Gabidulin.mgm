@@ -1,0 +1,253 @@
+/**********************************************************************
+
+Fonction Rank_F
+INPUTS :  - A positive integer m	
+		  - A vector Vec with entries in F_{q^m}
+Outputs : The rank weight of the vector Vec
+
+**********************************************************************/
+
+Rank_F := function(Vec, F)
+  FF := BaseRing(Parent(Vec));
+  m := Degree(FF, F);
+  FF := ext<F|m>; // We want F to be understood a subfield of FF. 
+  
+  // subfield of index m
+  B := Basis(FF, F);
+  assert #B eq m;
+
+  // Compution of the rank
+  M := KMatrixSpace(F, m, Dimension(Parent(Vec))) ! 0 ;
+  for i in [1..Dimension(Parent(Vec))] do 
+      V := Matrix(F, m, 1, [[Trace(Vec[i]*B[j], F)] : j in {1..m} ]) ;
+      InsertBlock(~M, V, 1, i) ;     
+  end for ; 
+
+  return Rank(M), M ;
+end function ;
+
+
+/********************************************************************
+
+Wrapper of the previous function when Vec is a sequence and not
+a vector
+
+********************************************************************/
+
+function Rank_FList(List, F)
+	return Rank_F(VectorSpace(Universe(List), #List)!List, F);
+end function;
+
+
+/*********************************************************************
+
+Function : Base_Espace
+INPUTS : - A field FF
+	     - a positive integer l
+		 - A positive integer m such that F = F_q^m (default q = 2)
+OUTPUTS : A sequence of l F_q-independent elements of F_q^m
+
+**********************************************************************/
+
+Base_Espace := function(FF, m, l) ;
+    Base := [FF | 0 : i in {1..l}] ;
+	assert IsDivisibleBy(Degree(FF), m);
+	F := sub<FF | Degree(FF) div m>;
+    i := 1;
+	while i lt l+1 do
+      Base[i] := Random(FF); 
+      if ( Rank_FList(Base[1..i], F)) eq i then 	    
+      	 i +:= 1; 
+      end if;
+    end while;
+
+    return Base ; 
+end function ; 
+
+
+
+
+
+
+/*******************************************************************
+
+Fonction GabidulinCodeGenMat
+INPUTS : - A sequence Support of elements of F_q^m
+	   	 - A positive integer m such that support has entries in F_q^m
+		 - A positive integer k which will be the dimension of the
+		   code
+		 
+*******************************************************************/
+
+GabidulinCodeGenMat := function(Support, m, k) ;
+   FF := Universe(Support);
+   assert IsDivisibleBy(Degree(FF), m);
+   F := sub<FF | Degree(FF) div m>;
+   q := #F;
+   return Matrix(FF, k, #Support,
+   		  [[a^(q^i) : a in Support] : i in {0..k-1}]); 
+end function ;
+
+
+
+
+/********************************************************************
+
+Function GabidulinCode. Wraps the previous function into a code.
+
+********************************************************************/
+
+GabidulinCode := function(Support, m, k) ;
+	return LinearCode(GabidulinCodeGenMat(Support, m, k));				
+end function;
+
+
+
+
+/************************************************************
+
+Function : ComponentWiseFrobenius
+INPUTS : - A matrix R with entries in F_q^m
+	   	 - The positive integer m
+		 - A positive integer t equal to 1 by default
+OUTPUTS : A matrix obtained from R by applying the
+		  component wise ^(q^t)
+		 
+************************************************************/
+
+ComponentWiseFrobenius := function(R, m : t := 1)
+    FF := BaseRing(R);
+    assert IsDivisibleBy(Degree(FF), m);
+    F := sub<FF | Degree(FF) div m>;
+	q := #F;
+	Result := Parent(R) ! 0;
+  	for i in [1..NumberOfRows(R)] do 
+    	for j in [1..NumberOfColumns(R)] do 
+      		Result[i,j] := R[i,j]^(q^t) ; 
+    	end for;
+  	end for ;
+  	return Result; 
+end function ;
+
+
+
+
+/************************************************************
+
+Function : CodeFrobenius
+INPUTS : - A rank metric code C over F_q^m
+	   	 - The positive integer m
+		 - A positive integer t equal to 1 by default
+OUTPUTS : C^[q^t]
+		 
+************************************************************/
+
+CodeFrobenius := function(C, m : t := 1);
+	R := GeneratorMatrix(C);				   
+	return LinearCode(ComponentWiseFrobenius(R, m : t := t));
+end function;
+
+
+
+
+/************************************************************
+
+Function : OverbeckDistinguisher
+INPUTS : - A rank metric code C over F_q^m
+	   	 - the integer m
+		 - a positive integer order
+OUTPUTS : Dim(C + C^[q] + ... + C^[q^[order]]),
+		  		C + C^[q] + ... + C^[q^[order]]
+	   	 
+************************************************************/
+
+
+function OverbeckDistinguisher(C, m, order);
+		 Cresult := C;
+		 for i in {1..order} do
+		 	 Cresult +:= CodeFrobenius(C, m: t := i);
+		end for;
+		return Dimension(Cresult), Cresult;
+end function;
+
+
+
+
+
+
+
+/* ============================================================================= */
+/*                               Obsolete functions                              */
+
+
+/*****************************************************************
+
+function : Rank Multiplier
+INPUTS : - A field FF
+	   	 - A positive integer m such that FF = F_q^m
+	   	 - A positive integer n
+		 - A sequence Base of elements of FF
+OUPUTS : A random nonsingular matrix with entries in Span<base>
+
+!!! Might be obsolete !!!
+
+*****************************************************************/
+
+Rank_Multiplier := function(FF, m, n, Base) 
+
+    M_Multiplier := KMatrixSpace(FF, n, n) ! 0 ;
+	assert IsDivisibleBy(Degree(FF), m);
+  	F := sub<FF | Degree(FF) div m>;
+    l := #Base;
+	repeat
+	    for i in [1..n] do 
+    		for j in [1..n] do 
+	    		v_elt := Random(VectorSpace(F,l)) ; 
+	    		elt := &+[ v_elt[i] * Base[i] : i in [1..l] ] ;
+	    		M_Multiplier[i,j] := elt ;
+			end for 			  ; 
+    	end for ;
+	until Rank(M_Multiplier) eq n;
+	
+    return M_Multiplier ; 
+end function ; 
+
+
+
+
+/************************************************************
+
+Function : OverbeckWithShortening
+INPUTS : - A rank metric code C over F_q^m
+	   	 - the integer m
+		 - a positive integer order
+	   	 
+************************************************************/
+
+
+function OverbeckWithShortening(C, m, order : verbose := false);
+		 Crand := RandomLinearCode(BaseRing(C), Length(C), Dimension(C));
+		 Ctmp := C;
+		 bool := false;
+		 while Dimension(Ctmp) gt 0 do
+		 	   for i in {order..m-1} do
+			   	   d, CtmpResult := OverbeckDistinguisher(Ctmp, m, i);
+			   	   drand, CrandResult := OverbeckDistinguisher(Crand, m, i);
+			   	   if verbose then
+			   	   	  printf "Length = %o, Dimension = %o  [order = %o].\n",
+				  		 Length(Ctmp), Dimension(Ctmp), i;
+				  	  printf "Overbeck : d = %o,   drand = %o\n", d, drand;
+			   	   end if;
+			   	   if drand ne d then
+			   	   	  bool := true;
+				  	  printf "[ !! DISTINGUISHED !! ] : d = %o,  drand = %o\n---\n\n", d, drand;
+			   	   end if;
+			   end for;
+		 	   Crand := ShortenCode(Crand, {1});
+			   Ctmp := ShortenCode(Ctmp, {1});
+		 end while;
+		 return bool;
+end function;
+
+
+

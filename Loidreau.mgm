@@ -1,0 +1,293 @@
+load "Bases.mgm";
+load "Gabidulin.mgm";
+
+
+
+/*********************************************************************
+Function MaskingMatrix
+INPUTS : - The finite field FF = F_{q^m}
+         - Its extension degree m over Fq
+		 - The Fq-dimension l of the space spanned by
+		   the matrix P.
+		 - The size n of the output matrix.
+Outputs : - A basis 1, gamma_2, ...., gamma_l of elements of the space
+          of entries
+          - An l-tuple of nonsingular matrices P_1,...,P_l such that
+		    P_1 + gamma_2 P_2 + ... + gamma_l P_l is nonsingular
+
+*********************************************************************/
+
+function MaskingMatrix(FF, m, n, l)
+		 assert  IsDivisibleBy(Degree(FF), m);
+         F := sub<FF | Degree(FF) div m>;
+	     L := [1] cat Base_Espace(FF, m, l-1);
+
+		 LP := [ZeroMatrix(FF, n, n) : i in {1..l}];
+		 MatSpaceFF := Universe(LP);
+		 repeat
+			for i in {1..l} do
+				// repeat
+				   M := RandomMatrix(F, n, n);
+				   LP[i] := MatSpaceFF!M;
+				// until IsInvertible(M);
+		 	end for;
+			P := &+[L[i]*LP[i] : i in {1..l}];
+		 until IsInvertible(P); 	
+
+		 return P, L, LP;
+end function;
+
+
+
+/**********************************************************************
+
+Function LoidreauKeyGen
+INPUTS : - A field FF = F_q^m
+	     - the integer m
+		 - the length n of the code
+		 - The dimension k of the public code
+		 - The dimension l of the space spanned by
+		   the entries of the scrambling matrix
+OUTPUTS : Public key as a generator matrix, secret key
+		  as the support of the Gabidulin code and the scrambling
+		  matrix.
+
+**********************************************************************/
+
+function LoidreauKeyGen(FF, m, n, k, l)
+	assert IsDivisibleBy(Degree(FF), m);
+	assert n lt m + 1;
+	F := sub<FF | Degree(FF) div m>;
+	P, L, LP := MaskingMatrix(FF, m, n, l);
+	
+	Support := Base_Espace(FF, m, n);
+	G := GabidulinCodeGenMat(Support, m, k);
+	Pub := G * (P^(-1));
+	return Pub, G, Support, P, L, LP;
+end function;
+
+
+
+/*************************************************************************
+Just for testing. Obsolete
+*************************************************************************/
+
+function DualLoidreauTest(FF, m, k, Support, P)
+		 Gab := GabidulinCode(Support, m, k);
+		 return ParityCheckMatrix(Gab) * Transpose(P);
+end function;
+
+
+
+
+
+//===========================================================================
+// From now on, the functions work only for l = 2.
+// Tests done! Let us consider an alternative key generation with the dual
+//===========================================================================
+
+
+
+
+
+
+
+
+
+/**********************************************************************
+
+Function DualLoidreauKeyGen
+INPUTS : - A field FF = F_q^m
+	     - the integer m
+		 - the length n of the code
+		 - The dimension k of the public code
+		 - The dimension l of the space spanned by
+		   the entries of the scrambling matrix
+OUTPUTS : Public key as a generator matrix, secret key
+		  as the support of the Gabidulin code and the scrambling
+		  matrix.
+
+CAUTION : compare to the previous functions, the matrix P corresponds
+          to the transpose of P. We take this notation for convenience.
+
+**********************************************************************/
+
+function DualLoidreauKeyGen(FF, m, n, k, l)
+	assert IsDivisibleBy(Degree(FF), m);
+	assert n lt m + 1;
+	F := sub<FF | Degree(FF) div m>;
+	P, L, LP := MaskingMatrix(FF, m, n, l);
+	
+	Support := Base_Espace(FF, m, n);
+	G := GabidulinCodeGenMat(Support, m, k);
+	Pub := G * P;
+	return Pub, G, Support, P, L, LP;
+end function;
+
+
+
+
+
+/*************************************************************************
+Function BasisPublicCode -- For accessing to g + gamma^{q^{-i}} h
+INPUTS : - the support;
+         - gamma (i.e. L[2])
+	     - the list of matrices LP
+
+OUTPUTS :- The list [g + gamma^{q^i} h] and the pair g, h].
+
+*************************************************************************/
+
+function BasisPublicCode(Support, gamma, m, q, k, LP)
+		 FF := Universe(Support);
+		 gg := Matrix(FF, 1, #Support, [Support])*LP[1];
+		 hh := Matrix(FF, 1, #Support, [Support])*LP[2];
+		 List := [ElementToSequence(gg + gamma^(q^(m-i)) * hh) : i in {0..k-1}]; 
+		 
+		 return ElementToSequence(gg), ElementToSequence(hh), List;
+end function;
+
+
+
+/***********************************************************
+	A wrapper to get the spaces < g + gamma^{q^{-i}} h >
+************************************************************/
+
+function ListOfOneDimensionalCodes(Support, gamma, m, q, k, LP)
+		 g, h, List := BasisPublicCode(Support, gamma, m, q, k, LP);
+		 return g, h, [LinearCode<Universe(Support), #Support | [l]> : l in List];
+		 
+end function;
+
+
+
+/*************************************************************
+function ExtractPseudoSupport_I
+INPUTS : - The code C
+         - The extension degree m
+
+OUTPUTS the space : <g + gamma h, g^[1] + gamma^[2-k] h^[1]>;  
+
+*************************************************************/
+
+function ExtractPseudoSupport_I(C, m)
+		 k := Dimension(C);
+		 D := C + CodeFrobenius(C, m);
+		 R := D;
+		 //printf "Dimension de D = %o\n", Dimension(D);
+		 for i in {1..k-1} do
+		 	 D := CodeFrobenius(D, m);
+		 	 R := R meet D;
+			 //printf "Dimension de R = %o\n", Dimension(R);
+		 end for;
+		 return CodeFrobenius(R, m : t := m-k+1);
+end function;
+
+
+
+/*************************************************************
+function uij_vij
+INPUTS : - The list of generators of <g + gamma^[-s]>, s = 1..k-1
+	     - Gen_ref : i.e. g + gamma h
+         - Indexes i, j.
+
+OUTPUTS the pair (uij, vij)  such that
+		uij.Generator[i] + vij.Generator[j] = Gen_ref.
+
+*************************************************************/
+
+
+function uij_vij(Generators, Gen_ref, i, j)
+		 FF := Universe(Gen_ref);
+		 n := #Gen_ref;
+		 M := Matrix(FF, 2, #Gen_ref, [Generators[i], Generators[j]]);
+		 return ElementToSequence(Solution(M, VectorSpace(FF, n)!Gen_ref));
+end function;
+
+
+
+/***************************************************************
+Function RelationUU(U, i, j, l)
+***************************************************************/
+
+function RelationUU(U, q, i, j, l)
+		 assert i lt j and j lt l;
+		 FF := CoefficientRing(U);
+		 c := U[i,j]/U[i,l];
+		 //print c;
+		 Pol<X> := PolynomialRing(FF);
+		 return (X^(q^(l-j)) - X^(q^(l-	i))) * (X - X^(q^l)) * c^(q^l) -
+		 		(X^(q^(l-j)) - X^(q^l)) * (X - X^(q^(l-i)));
+end function;
+
+
+
+/***************************************************************
+Function RelationVV(V, i, j, l)
+***************************************************************/
+
+function RelationVV(V, q, i, j, l)
+		 assert i lt j and j lt l;
+		 FF := CoefficientRing(V);
+		 c := V[i,l]/V[j,l];
+		 //print c;
+		 Pol<X> := PolynomialRing(FF);
+		 return (X - X^(q^(l-	i))) * (X^(q^l) - X^(q^(l-j))) * c^(q^l) -
+		 		(X^(q^l) - X^(q^(l-i))) * (X - X^(q^(l-j)));
+end function;
+
+
+
+/***************************************************************
+Function RelationUV(U, V, i, j, l)
+***************************************************************/
+
+function RelationUV(U, V, q, i, j, l)
+		 assert i lt j and j lt l;
+		 FF := CoefficientRing(U);
+		 c := V[i,j]/U[j,l];
+		 //print c;
+		 Pol<X> := PolynomialRing(FF);
+		 return (X^(q^(l-j)) - X^(q^(l-	i))) * (X - X^(q^l)) * c^(q^l) -
+		 		(X^(q^l) - X^(q^(l-i))) * (X - X^(q^(l-j)));
+end function;
+
+
+/****************************************************************
+From two vectors g,h with entries in Fqm, creates
+a vector whose support is the sum of their supports
+****************************************************************/
+
+function SupportVector(g,h, F)
+		 FF<w> := Universe(g);
+		 n := #g;
+		 m := Degree(FF, F);
+		 
+		 rg := Rank_FList(g, F);
+		 rh := Rank_FList(h, F);
+		 if rg eq n then
+		 	return g;
+		 end if;
+		 if rh eq n then
+		 	return h;
+		 end if;
+
+		 tmp := [g[1]];
+		 res := [g[1]];
+
+		 for i in {2..n} do
+		 	 Append(~tmp, g[i]);
+			 if Rank_FList(tmp, F) gt Rank_FList(res, F) then
+			 	Append(~res, g[i]);
+			 end if;		 
+		 end for;
+
+		 j := 1;
+		 while Rank_FList(res, F) lt n do
+		 	   Append(~tmp, h[j]);
+			   if Rank_FList(tmp, F) gt Rank_FList(res, F) then
+			   	  Append(~res, h[j]);
+			   end if;
+		 end while;
+		 return res;
+end function;

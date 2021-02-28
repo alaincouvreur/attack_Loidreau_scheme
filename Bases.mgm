@@ -1,0 +1,72 @@
+/***********************************************************
+Expands a vector with entries in Fqm, into a matrix
+with respect to Magma's canonical matrix for Fqm/Fq
+***********************************************************/
+
+function MatrixExpansion(g, F)
+		 FF := Universe(g);
+		 m := Degree(FF, F);
+		 Lcol := [];
+		 for a in g do
+		 	 list := Coefficients(Polynomial(a));
+			 while #list lt m do
+			 	   Append(~list, 0);
+			 end while;
+			 Append(~Lcol, list);
+		 end for;
+		 M := Matrix(F, #g, m, Lcol);
+		 return Transpose(M);
+end function;
+
+
+
+/************************************************************
+The reciprocal operation
+************************************************************/
+
+function MatrixContraction(M, Basis)
+		 F := BaseRing(M);
+		 FF<w> := ext<F | NumberOfRows(M)>;
+		 n := NumberOfColumns(M);
+		 m := NumberOfRows(M);
+
+		 g := [FF | 0 : i in {1..n}];
+		 for j in {1..n} do
+		 	 for i in {1..m} do
+			 	 g[j] +:= Basis[i] * M[i,j];
+			 end for;
+		 end for;
+		 return g;
+end function;
+
+
+/*********************************************************
+function ExtractFullRankSubmatrix
+takes as input a full rank rectangular matrix M
+with more rows than columns.
+Returns a square full rank submatrix and the list
+of indexes of the corresponding rows
+*********************************************************/
+
+function ExtractFullRankSubmatrix(M)
+		 n := NumberOfColumns(M);
+		 m := NumberOfRows(M);
+		 assert n lt m+1;
+		 assert Rank(M) eq n;
+		 rows := Rows(M);
+		 L := [1];
+		 Res := Matrix(BaseRing(M), 1, n, [rows[1]]);
+		 Tmp := Matrix(BaseRing(M), 1, n, [rows[1]]);
+		 for i in {2..m} do
+		 	 Tmp := VerticalJoin(Tmp,Matrix(BaseRing(M), 1, n, [rows[i]]));
+			 if Rank(Tmp) gt Rank(Res) then
+			 	Res := VerticalJoin(Res,Matrix(BaseRing(M), 1, n, [rows[i]]));
+				Append(~L, i);
+			 end if;
+			 if Rank(Res) eq n then
+			 	return Res, L;
+			 end if;	
+		 end for;
+		 print "[ExtractFullRankError] did not succeed to find a full rank matrix";
+		 return M, L;
+end function;
